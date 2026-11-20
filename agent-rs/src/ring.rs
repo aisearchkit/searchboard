@@ -11,13 +11,20 @@ pub struct DropOldest<T> {
 
 impl<T> DropOldest<T> {
     pub fn new(cap: usize) -> Self {
-        Self { cap, inner: Mutex::new(VecDeque::with_capacity(cap)) }
+        Self {
+            cap,
+            inner: Mutex::new(VecDeque::with_capacity(cap)),
+        }
     }
 
     /// Push an item; returns the evicted oldest item if the queue was full.
     pub fn push(&self, item: T) -> Option<T> {
         let mut q = self.inner.lock().unwrap();
-        let evicted = if q.len() >= self.cap { q.pop_front() } else { None };
+        let evicted = if q.len() >= self.cap {
+            q.pop_front()
+        } else {
+            None
+        };
         q.push_back(item);
         evicted
     }

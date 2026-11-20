@@ -1,27 +1,24 @@
 # Searchboard
 
-Lightweight, reliable observability, migration and AI-ops platform for Elasticsearch / OpenSearch.
-Design: [docs/architecture.md](docs/architecture.md)
+A lightweight, reliable observability, data migration and AI operations platform for Elasticsearch and OpenSearch.
 
 | Component | Path | Stack |
-|---|---|---|
-| Server | `cmd/`, `internal/` | Go (chi, modernc SQLite) |
+| :--- | :--- | :--- |
+| Server | `cmd/`, `internal/` | Go (chi, pure Go SQLite) |
 | Node agent | `agent-rs/` | Rust (tokio, rustls, optional quinn) |
-| Web UI | `web/` | Vite, React 19, Tailwind v4, shadcn/ui |
+| Web UI | `web/` | Vite, React 19, Tailwind CSS v4, shadcn/ui |
 
 ## Quick start
 
 ```bash
-make web      # build UI into web/dist (embedded into the Go binary)
+make web      # build the UI into web/dist (embedded into the Go binary)
 make server   # build bin/searchboard
 make run      # http://localhost:9800
-make test     # go test + cargo test
+make check    # run everything CI runs
 ```
 
-Dev: `go run ./cmd/searchboard` and, in `web/`, `npm run dev` (proxies `/api` to :9800).
+## Documentation
 
-## Status
+Everything lives in [docs/](docs/README.md): [architecture](docs/architecture.md), [development guide](docs/development.md), [contributing](docs/contributing.md) and [AI agent guidelines](docs/ai-guidelines.md).
 
-Skeleton with real logic + tests for: pressure guard, AIMD controller, ES version capability detection,
-log anomaly rules, agent multiline merger / drop-oldest ring / UDP framing. Stubs (TODO) for: local TSDB
-engine, remote write, agent hub, Drain clustering, migration reader/writer, inspector rules, API endpoints.
+All changes go through pull requests with a conventional-commit title. See [docs/contributing.md](docs/contributing.md).

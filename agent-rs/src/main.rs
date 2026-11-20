@@ -3,6 +3,10 @@
 //! Runs next to an ES/OpenSearch node, collects local metrics (127.0.0.1:9200 + /proc)
 //! and log events, and *dials out* to the Searchboard server: no inbound port is needed.
 
+// The agent modules are implemented ahead of the runtime loop that wires them together.
+// Remove this allowance once `main` spawns the collector, tailer and transport tasks.
+#![allow(dead_code)]
+
 mod collector;
 mod config;
 mod logtail;

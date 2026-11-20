@@ -13,7 +13,11 @@ pub struct ProcStats {
 /// Parse the first field of /proc/loadavg and MemAvailable from /proc/meminfo.
 pub fn read_proc() -> Result<ProcStats> {
     let load = std::fs::read_to_string("/proc/loadavg")?;
-    let load1 = load.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    let load1 = load
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
     let mem = std::fs::read_to_string("/proc/meminfo")?;
     let mem_available_kb = mem
         .lines()
@@ -21,7 +25,10 @@ pub fn read_proc() -> Result<ProcStats> {
         .and_then(|l| l.split_whitespace().nth(1))
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
-    Ok(ProcStats { load1, mem_available_kb })
+    Ok(ProcStats {
+        load1,
+        mem_available_kb,
+    })
 }
 
 #[cfg(test)]
