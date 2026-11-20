@@ -21,14 +21,14 @@ fn is_continuation(line: &str) -> bool {
 impl MultilineMerger {
     /// Feed one line; returns a completed event when a new one begins.
     pub fn push(&mut self, line: &str) -> Option<String> {
-        if is_continuation(line) && self.current.is_some() {
-            let cur = self.current.as_mut().unwrap();
-            cur.push('\n');
-            cur.push_str(line);
-            None
-        } else {
-            self.current.replace(line.to_string())
+        if is_continuation(line) {
+            if let Some(current) = self.current.as_mut() {
+                current.push('\n');
+                current.push_str(line);
+                return None;
+            }
         }
+        self.current.replace(line.to_string())
     }
 
     /// Flush the pending event (call on idle timeout / shutdown).
@@ -49,10 +49,15 @@ mod tests {
             m.push("[2026-11-20T08:00:01][ERROR] boom").as_deref(),
             Some("[2026-11-20T08:00:00][INFO ] started")
         );
-        assert_eq!(m.push("java.lang.OutOfMemoryError: Java heap space"), Some("[2026-11-20T08:00:01][ERROR] boom".into()));
+        assert_eq!(
+            m.push("java.lang.OutOfMemoryError: Java heap space"),
+            Some("[2026-11-20T08:00:01][ERROR] boom".into())
+        );
         assert_eq!(m.push("\tat org.elasticsearch.Foo.bar(Foo.java:1)"), None);
         assert_eq!(m.push("Caused by: x"), None);
         let ev = m.flush().unwrap();
-        assert!(ev.contains("OutOfMemoryError") && ev.contains("Foo.bar") && ev.contains("Caused by"));
+        assert!(
+            ev.contains("OutOfMemoryError") && ev.contains("Foo.bar") && ev.contains("Caused by")
+        );
     }
 }
