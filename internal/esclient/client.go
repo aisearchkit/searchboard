@@ -1,58 +1,171 @@
-// Package esclient hides API differences between Elasticsearch 5.x-9.x and OpenSearch.
+// Package esclient talks to Elasticsearch and OpenSearch clusters of different
+// versions and hides their API differences behind the ClusterReader interface.
 package esclient
 
 import (
+	"bytes"
 	"context"
-	"strconv"
-	"strings"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"sync"
+	"time"
 )
-
-type Flavor string
 
 const (
-	FlavorElasticsearch Flavor = "elasticsearch"
-	FlavorOpenSearch    Flavor = "opensearch"
+	defaultTimeout = 30 * time.Second
+	// maxResponseBytes caps how much of a response is read into memory.
+	maxResponseBytes = 128 << 20
 )
 
-type Version struct {
-	Flavor Flavor
-	Major  int
-	Minor  int
+// Config describes how to reach one cluster.
+type Config struct {
+	BaseURL            string
+	Username           string
+	Password           string
+	APIKey             string // takes precedence over Username/Password
+	InsecureSkipVerify bool
+	Timeout            time.Duration // zero means 30 seconds
 }
 
-// ParseVersion parses "7.10.2" style strings.
-func ParseVersion(flavor Flavor, s string) Version {
-	v := Version{Flavor: flavor}
-	parts := strings.SplitN(s, ".", 3)
-	if len(parts) > 0 {
-		v.Major, _ = strconv.Atoi(parts[0])
-	}
-	if len(parts) > 1 {
-		v.Minor, _ = strconv.Atoi(parts[1])
-	}
-	return v
+// Client is an HTTP client for a single cluster. It is safe for concurrent use.
+type Client struct {
+	cfg  Config
+	base *url.URL
+	http *http.Client
+
+	mu      sync.RWMutex
+	version *Version
 }
 
-// SupportsPIT reports whether Point-in-Time + search_after is available
-// (ES 7.10+, OpenSearch 2.4+).
-func (v Version) SupportsPIT() bool {
-	if v.Flavor == FlavorOpenSearch {
-		return v.Major > 2 || (v.Major == 2 && v.Minor >= 4)
+// New validates cfg and returns a client. It does not contact the cluster.
+func New(cfg Config) (*Client, error) {
+	base, err := url.Parse(cfg.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("esclient: invalid base URL: %w", err)
 	}
-	return v.Major > 7 || (v.Major == 7 && v.Minor >= 10)
+	if (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" {
+		return nil, errors.New("esclient: base URL must be an absolute http or https URL")
+	}
+
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if cfg.InsecureSkipVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // opt-in per cluster
+	}
+
+	return &Client{
+		cfg:  cfg,
+		base: base,
+		http: &http.Client{Transport: transport, Timeout: timeout},
+	}, nil
 }
 
-// SupportsSearchAfter reports ES 6.8+ / OpenSearch (any).
-func (v Version) SupportsSearchAfter() bool {
-	if v.Flavor == FlavorOpenSearch {
-		return true
+// Do sends a request and returns the raw response body. A non-nil body is
+// encoded as JSON. Non-2xx responses are returned as *APIError.
+func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body any) ([]byte, error) {
+	var reader io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("esclient: encode request body: %w", err)
+		}
+		reader = bytes.NewReader(encoded)
 	}
-	return v.Major > 6 || (v.Major == 6 && v.Minor >= 8)
+
+	target := c.base.JoinPath(path)
+	target.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, method, target.String(), reader)
+	if err != nil {
+		return nil, fmt.Errorf("esclient: build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	c.authenticate(req)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("esclient: %s %s: %w", method, path, err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("esclient: read response: %w", err)
+	}
+	if len(data) > maxResponseBytes {
+		return nil, fmt.Errorf("esclient: response to %s %s exceeds %d bytes", method, path, maxResponseBytes)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, newAPIError(resp.StatusCode, data)
+	}
+	return data, nil
 }
 
-// Client is the version-agnostic surface used by the rest of the server.
-type Client interface {
-	Version(ctx context.Context) (Version, error)
-	ClusterHealth(ctx context.Context) ([]byte, error)
-	Do(ctx context.Context, method, path string, body []byte) (status int, resp []byte, err error)
+// doJSON sends a request and decodes the JSON response into out.
+func (c *Client) doJSON(ctx context.Context, method, path string, query url.Values, body, out any) error {
+	data, err := c.Do(ctx, method, path, query, body)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("esclient: decode response of %s %s: %w", method, path, err)
+	}
+	return nil
+}
+
+func (c *Client) authenticate(req *http.Request) {
+	switch {
+	case c.cfg.APIKey != "":
+		req.Header.Set("Authorization", "ApiKey "+c.cfg.APIKey)
+	case c.cfg.Username != "":
+		req.SetBasicAuth(c.cfg.Username, c.cfg.Password)
+	}
+}
+
+// Version detects the server flavor and version. The result is cached after the
+// first success.
+func (c *Client) Version(ctx context.Context) (Version, error) {
+	c.mu.RLock()
+	cached := c.version
+	c.mu.RUnlock()
+	if cached != nil {
+		return *cached, nil
+	}
+
+	var root struct {
+		Version struct {
+			Number       string `json:"number"`
+			Distribution string `json:"distribution"`
+		} `json:"version"`
+	}
+	query := url.Values{"filter_path": {"version.number,version.distribution"}}
+	if err := c.doJSON(ctx, http.MethodGet, "", query, nil, &root); err != nil {
+		return Version{}, err
+	}
+
+	flavor := FlavorElasticsearch
+	if root.Version.Distribution == string(FlavorOpenSearch) {
+		flavor = FlavorOpenSearch
+	}
+	version, err := ParseVersion(flavor, root.Version.Number)
+	if err != nil {
+		return Version{}, err
+	}
+
+	c.mu.Lock()
+	c.version = &version
+	c.mu.Unlock()
+	return version, nil
 }
