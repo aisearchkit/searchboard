@@ -29,7 +29,7 @@ check:
 	go vet ./...
 	go test -race -count=1 ./...
 	cd agent-rs && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-	cd web && npm run typecheck && npm run build
+	cd web && npm run typecheck && npm test && npm run build
 
 run: server
 	./bin/searchboard -config configs/searchboard.yaml
