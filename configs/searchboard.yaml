@@ -1,0 +1,19 @@
+server:
+  listen: ":9800"
+
+storage:
+  sqlite_path: data/searchboard.db
+
+tsdb:
+  mode: local            # local | remote
+  local:
+    dir: data/metrics
+    retention_days: 14
+  remote:
+    write_url: ""        # e.g. http://victoria:8428/api/v1/write
+    query_url: ""        # e.g. http://victoria:8428
+
+agent_hub:
+  enabled: false
+  listen: ":9801"
+  transport: tcp         # tcp | quic | udp

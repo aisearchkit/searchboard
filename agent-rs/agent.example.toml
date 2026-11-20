@@ -1,0 +1,12 @@
+[server]
+addr = "searchboard.example.com:9801"
+transport = "tcp"      # tcp | quic | udp (telemetry only; control/logs stay reliable)
+token = ""
+
+[es]
+url = "http://127.0.0.1:9200"
+interval_secs = 10
+
+[logs]
+paths = ["/var/log/elasticsearch/*.log"]
+state_dir = "/var/lib/searchboard-agent"

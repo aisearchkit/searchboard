@@ -1,0 +1,31 @@
+[package]
+name = "searchboard-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Searchboard lightweight node agent: local ES stats + /proc + log tail, reverse-connects to the server"
+
+[features]
+default = []
+# Optional QUIC transport (adds quinn); TCP+TLS is always available.
+quic = ["dep:quinn"]
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "io-util", "sync", "signal", "fs"] }
+tokio-rustls = "0.26"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+notify = "6"
+lz4_flex = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+quinn = { version = "0.11", optional = true }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
