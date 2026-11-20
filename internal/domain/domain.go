@@ -3,13 +3,31 @@ package domain
 
 import "time"
 
+// Environment labels a registered cluster. The UI uses it for guard rails,
+// for example the red frame around production clusters.
+type Environment string
+
+const (
+	EnvProd    Environment = "prod"
+	EnvStaging Environment = "staging"
+	EnvDev     Environment = "dev"
+)
+
+// Valid reports whether e is a known environment.
+func (e Environment) Valid() bool {
+	return e == EnvProd || e == EnvStaging || e == EnvDev
+}
+
+// Cluster is a registered Elasticsearch / OpenSearch cluster.
 type Cluster struct {
-	ID       string
-	Name     string
-	URL      string
-	Username string
-	Env      string // prod | staging | dev ; "prod" enables UI guard rails
-	Version  string
+	ID                 string
+	Name               string
+	URL                string
+	Username           string
+	Password           string // never serialized to API responses
+	Env                Environment
+	InsecureSkipVerify bool
+	CreatedAt          time.Time
 }
 
 type MetricPoint struct {

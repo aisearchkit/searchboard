@@ -6,6 +6,7 @@ All project documentation lives in this directory. The repository root keeps onl
 | :--- | :--- |
 | [architecture.md](architecture.md) | System design, components and roadmap |
 | [development.md](development.md) | Local setup, commands and project conventions |
+| [api.md](api.md) | HTTP API reference |
 | [esclient.md](esclient.md) | How the adapter hides Elasticsearch and OpenSearch version differences |
 | [contributing.md](contributing.md) | Pull request workflow, merge rules, PR title format, language and diagram rules |
 | [ai-guidelines.md](ai-guidelines.md) | Rules for AI coding agents: multi-agent collaboration, pull requests and self-merge after CI |

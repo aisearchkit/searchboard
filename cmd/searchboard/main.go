@@ -43,8 +43,13 @@ func main() {
 	defer metrics.Close()
 
 	srv := &http.Server{
-		Addr:              cfg.Server.Listen,
-		Handler:           api.NewRouter(api.Deps{Log: log, Store: db, Metrics: metrics}),
+		Addr: cfg.Server.Listen,
+		Handler: api.NewRouter(api.Deps{
+			Log:       log,
+			Clusters:  db,
+			Connector: api.NewClientCache(),
+			Metrics:   metrics,
+		}),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
