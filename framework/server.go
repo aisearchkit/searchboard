@@ -32,6 +32,7 @@ type Server struct {
 	trees     *route.Tree[HandlersChain]
 	transport network.Transport
 	pool      sync.Pool
+	trusted   []*net.IPNet
 
 	noRoute  HandlersChain
 	noMethod HandlersChain
@@ -51,6 +52,12 @@ func New(opts ...Option) *Server {
 	for _, opt := range opts {
 		opt(&s.opts)
 	}
+
+	trusted, err := parseTrustedProxies(s.opts.trustedProxies)
+	if err != nil {
+		panic(err.Error())
+	}
+	s.trusted = trusted
 
 	s.transport = s.opts.transport
 	if s.transport == nil {
@@ -237,6 +244,7 @@ func (s *Server) serveRequest(ctx context.Context, conn network.Conn) (keepAlive
 		return false, err
 	}
 	req.RemoteAddr = conn.RemoteAddr().String()
+	req.Scheme = "http"
 
 	if http1.ExpectsContinue(req) {
 		if err := http1.WriteContinue(conn); err != nil {

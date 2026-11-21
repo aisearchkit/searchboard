@@ -3,9 +3,8 @@ package framework
 import (
 	"context"
 	"fmt"
-	"net"
+	"mime/multipart"
 	"net/url"
-	"strings"
 
 	"github.com/searchboard/searchboard/framework/binding"
 	"github.com/searchboard/searchboard/framework/codec"
@@ -42,6 +41,10 @@ type Context struct {
 	form     url.Values
 	formDone bool
 
+	multipart     *multipart.Form
+	multipartErr  error
+	multipartDone bool
+
 	ownRequest  *protocol.Request
 	ownResponse *protocol.Response
 }
@@ -67,6 +70,7 @@ func (c *Context) reset() {
 	c.handlers, c.index, c.aborted, c.fullPath = nil, -1, false, ""
 	clear(c.keys)
 	c.form, c.formDone = nil, false
+	c.releaseMultipart()
 }
 
 // Next runs the remaining handlers of the chain. Middleware calls it to wrap
@@ -98,16 +102,6 @@ func (c *Context) FullPath() string { return c.fullPath }
 
 // RemoteAddr returns the peer address as "ip:port".
 func (c *Context) RemoteAddr() string { return c.Request.RemoteAddr }
-
-// ClientIP returns the IP of the directly connected peer. Forwarding headers
-// are intentionally not trusted.
-func (c *Context) ClientIP() string {
-	host, _, err := net.SplitHostPort(c.Request.RemoteAddr)
-	if err != nil {
-		return c.Request.RemoteAddr
-	}
-	return host
-}
 
 // Param returns the percent-decoded value of a path parameter, or "" when absent.
 func (c *Context) Param(name string) string {
@@ -239,14 +233,14 @@ func (c *Context) BindHeader(obj any) error {
 	return c.bindThenValidate(obj, "header", c.headerGetter())
 }
 
-// BindForm fills obj from an application/x-www-form-urlencoded body using
-// `form` tags and validates it.
+// BindForm fills obj from an application/x-www-form-urlencoded or
+// multipart/form-data body using `form` tags and validates it.
 func (c *Context) BindForm(obj any) error {
 	return c.bindThenValidate(obj, "form", c.formGetter())
 }
 
 // Bind fills obj from every source that applies: path parameters, then the
-// query string, then the body chosen by Content-Type (JSON or URL-encoded form).
+// query string, then the body chosen by Content-Type (JSON, URL-encoded or multipart form).
 // Later sources override earlier ones. The result is validated once at the end.
 // A non-empty body with another Content-Type is rejected.
 func (c *Context) Bind(obj any) error {
@@ -258,18 +252,17 @@ func (c *Context) Bind(obj any) error {
 	}
 
 	if len(c.Request.Body()) > 0 {
-		contentType, _, _ := strings.Cut(c.Request.Header.Get("Content-Type"), ";")
-		switch strings.ToLower(strings.TrimSpace(contentType)) {
+		switch mediaType(c.Request.Header.Get("Content-Type")) {
 		case "application/json":
 			if err := codec.Unmarshal(c.Request.Body(), obj); err != nil {
 				return &binding.FieldError{Source: "json", Field: "body", Err: err}
 			}
-		case "application/x-www-form-urlencoded":
+		case "application/x-www-form-urlencoded", "multipart/form-data":
 			if err := binding.Bind(obj, "form", c.formGetter()); err != nil {
 				return err
 			}
 		default:
-			return fmt.Errorf("binding: unsupported content type %q", contentType)
+			return fmt.Errorf("binding: unsupported content type %q", c.Request.Header.Get("Content-Type"))
 		}
 	}
 	return binding.Validate(obj)
@@ -307,12 +300,9 @@ func (c *Context) headerGetter() binding.Getter {
 }
 
 func (c *Context) formGetter() binding.Getter {
-	if !c.formDone {
-		c.form, _ = url.ParseQuery(string(c.Request.Body()))
-		c.formDone = true
-	}
+	form := c.postForm()
 	return func(key string) ([]string, bool) {
-		values, ok := c.form[key]
+		values, ok := form[key]
 		return values, ok
 	}
 }

@@ -22,6 +22,7 @@ type options struct {
 	redirectTrailingSlash  bool
 	handleMethodNotAllowed bool
 	disableKeepAlive       bool
+	trustedProxies         []string
 
 	logger    *slog.Logger
 	transport network.Transport
@@ -87,3 +88,11 @@ func WithLogger(l *slog.Logger) Option { return func(o *options) { o.logger = l 
 
 // WithTransport replaces the default transport.
 func WithTransport(t network.Transport) Option { return func(o *options) { o.transport = t } }
+
+// WithTrustedProxies lists the IP addresses and CIDR ranges of reverse proxies
+// whose X-Forwarded-For, X-Real-IP and X-Forwarded-Proto headers may be
+// believed. Without it, ClientIP is always the directly connected peer. New
+// panics if an entry is neither an IP address nor a CIDR range.
+func WithTrustedProxies(proxies ...string) Option {
+	return func(o *options) { o.trustedProxies = append(o.trustedProxies, proxies...) }
+}

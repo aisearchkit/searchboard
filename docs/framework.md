@@ -181,8 +181,44 @@ sequenceDiagram
 - Handlers have the signature `func(ctx context.Context, c *framework.Context)`. Middleware calls `c.Next(ctx)`; `c.Abort()` and the `AbortWith...` helpers stop the chain.
 - **Contexts, requests, responses and bodies are pooled.** Never keep `c`, `c.Request`, headers or the body after the handler returns. Copy what you need.
 - Binding tags: `path`, `query`, `header`, `form` for their sources, `json` for bodies, and `binding:"required"` for validation (a required field must be non-zero; use a pointer to accept a zero value). `c.Bind` merges path, query and the body chosen by `Content-Type`.
-- `c.ClientIP()` returns the directly connected peer. Forwarding headers are intentionally not trusted.
+- `c.ClientIP()` returns the directly connected peer unless trusted proxies are configured (see [Behind a reverse proxy](#behind-a-reverse-proxy)).
 - `ctx` is not canceled when the client disconnects. Use timeouts on downstream calls.
+
+## Cookies
+
+- `c.Cookie(name)` returns the first cookie with that name. It understands several `Cookie` headers, which HTTP/2 clients send, and skips malformed ones.
+- `c.SetCookie(cookie)` validates the cookie and adds a `Set-Cookie` header; an invalid name or attribute is returned as an error and nothing is sent. `c.DeleteCookie(name, path, domain)` expires a cookie.
+- `framework.SecureSessionCookie` builds a cookie with `HttpOnly`, `Secure`, `SameSite=Lax` and `Path=/`.
+
+## Forms and uploads
+
+- `c.PostForm(key)` reads URL-encoded and multipart form values. `c.FormFile(name)` returns an uploaded file and `c.MultipartForm()` the whole parsed form.
+- The body is already in memory and bounded by `WithMaxBodyBytes`, so multipart files stay in memory and no temporary files are written.
+- `c.BindForm` and `c.Bind` fill `form` tagged structs from either form encoding.
+
+## Behind a reverse proxy
+
+By default forwarding headers are ignored, because any client can send them. List your proxies with `WithTrustedProxies("10.0.0.0/8", "192.0.2.1")`:
+
+```mermaid
+flowchart TD
+    A["Request arrives"] --> B{"Is the connected peer a trusted proxy?"}
+    B -- "no" --> C["ClientIP = peer address<br/>headers ignored"]
+    B -- "yes" --> D["Read X-Forwarded-For from the right"]
+    D --> E{"Next hop is a trusted proxy?"}
+    E -- "yes" --> D
+    E -- "no" --> F["That hop is the client"]
+    D -- "malformed hop" --> C
+    D -- "no header" --> G["X-Real-IP if valid, else peer"]
+```
+
+`c.Scheme()` follows the same rule for `X-Forwarded-Proto`. `New` panics when an entry is neither an IP address nor a CIDR range.
+
+## Static files
+
+- `c.FileFS(fsys, name)` serves a file from any `fs.FS`, such as an embedded directory. The name is cleaned and anchored at the root, so `..` can never escape it. It sets `Content-Type`, `ETag` (and `Last-Modified` when the file system has a time) and answers `304` to a matching `If-None-Match`.
+- `group.StaticFS("/assets", fsys, StaticOptions{...})` serves a directory tree for `GET` and `HEAD`. `StaticOptions` sets the directory index file and a per-file `Cache-Control`.
+- `FileHandler(fsys, opts)` serves the request path and is meant for `NoRoute`, which is how a single-page application is served after the API routes had their chance.
 
 ## Dependencies
 
@@ -196,10 +232,10 @@ sonic below v1.15.5 does not support Go 1.27: it falls back to `encoding/json` a
 
 ## Not supported
 
-HTTP/2, TLS termination (terminate TLS in front of Searchboard), WebSocket upgrades, multipart forms, cookies and trusted-proxy handling. They can be added behind the existing layers when needed.
+HTTP/2, TLS termination and WebSocket upgrades. They can be added behind the existing layers when needed.
 
 ## Testing
 
 - `ut.PerformRequest(server, method, target, body, headers...)` runs a request through routing and middleware with no network.
-- `framework/e2e_test.go` exercises real TCP connections against both transports: keep-alive, pipelining, chunked bodies, `Expect: 100-continue`, malformed requests, timeouts and graceful shutdown.
+- `framework/e2e_test.go` and the feature tests exercise real TCP connections against both transports: keep-alive, pipelining, chunked bodies, `Expect: 100-continue`, malformed requests, timeouts and graceful shutdown.
 - Parser and writer tests feed the stream one byte at a time to prove they handle partial reads.
