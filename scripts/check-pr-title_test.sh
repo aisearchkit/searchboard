@@ -16,6 +16,7 @@ expect() {
 }
 
 expect ok  "feat(esclient): add version detection"
+expect ok  "feat(framework): add routing tree"
 expect ok  "fix: handle empty shard list"
 expect ok  "docs(docs): describe the matrix api"
 expect ok  "feat(api)!: rename cluster routes"

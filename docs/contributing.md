@@ -40,7 +40,7 @@ Titles follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 
 - **type**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
-- **scope** (optional): `server`, `api`, `esclient`, `tsdb`, `collector`, `agenthub`, `logengine`, `migration`, `inspector`, `store`, `config`, `domain`, `matrix`, `web`, `agent`, `ci`, `docs`, `deps`, `repo`, `release`
+- **scope** (optional): `server`, `framework`, `api`, `esclient`, `tsdb`, `collector`, `agenthub`, `logengine`, `migration`, `inspector`, `store`, `config`, `domain`, `matrix`, `web`, `agent`, `ci`, `docs`, `deps`, `repo`, `release`
 - **subject**: imperative mood, ASCII only, starts with a lowercase letter or digit, no trailing period
 - the whole title is at most 72 characters
 - append `!` after the scope for breaking changes, for example `feat(api)!: rename cluster routes`
