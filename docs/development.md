@@ -7,6 +7,7 @@
 | Go | version in `go.mod` | server |
 | Rust | stable, with `rustfmt` and `clippy` | agent |
 | Node.js | 22 or newer | web UI |
+| GitHub CLI (`gh`) | recent | opening, watching and merging pull requests |
 
 ## Common commands
 

@@ -21,4 +21,4 @@ make check    # run everything CI runs
 
 Everything lives in [docs/](docs/README.md): [architecture](docs/architecture.md), [development guide](docs/development.md), [contributing](docs/contributing.md) and [AI agent guidelines](docs/ai-guidelines.md).
 
-All changes go through pull requests with a conventional-commit title. See [docs/contributing.md](docs/contributing.md).
+Searchboard is developed by multiple AI agents together with human maintainers. All changes go through pull requests with a conventional-commit title, and a pull request is squash merged by its author once CI is green. See [docs/contributing.md](docs/contributing.md) and [docs/ai-guidelines.md](docs/ai-guidelines.md).
