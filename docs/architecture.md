@@ -8,7 +8,7 @@
 
 | Pain point in existing tools (INFINI Console/Gateway, Cerebro, ...) | Searchboard approach |
 | :--- | :--- |
-| **Heavy shared frameworks** (such as `framework`) make the code tightly coupled and hard to customize. | **Native, modular Go**: no heavy framework. Only the standard library and orthogonal components (`chi`, `modernc.org/sqlite`, `prometheus/tsdb`). The core domain is written against interfaces. |
+| **Heavy shared frameworks** (such as `framework`) make the code tightly coupled and hard to customize. | **Native, modular Go**: no heavy shared framework. A small in-house HTTP framework (`framework/`, see [framework.md](framework.md)) plus orthogonal components (`modernc.org/sqlite`, `prometheus/tsdb`). The core domain is written against interfaces. |
 | **Monitoring data is written back into Elasticsearch**, which is heavy and can take the cluster down during a monitoring storm. | **Progressive storage**: metrics are immutable, append-only time series. A single node uses a **local time-series file engine** with zero external dependencies. At scale the same interface switches to VictoriaMetrics. |
 | **Agentless polling can overload business clusters**, while opening extra monitoring ports on nodes is a security risk. | **Dual-mode collection plus a reverse Rust agent**: the agent on each node dials out to the server (no inbound ports) and aggregates shard and node metrics locally. Agentless mode has a built-in pressure circuit breaker. |
 | **Migration relies on `scroll` and blind `_bulk`**, which piles up contexts or causes OOM on the source and `429` rejections on the target. | **Next-generation migration engine**: `PIT + search_after + slice` first (controlled `scroll` only for old clusters), a local Pebble/WAL disk buffer to decouple read and write, and **AIMD adaptive back-pressure** on the target. |
@@ -82,6 +82,7 @@ The Go server compiles to a single binary. The web assets are embedded with `emb
 ```text
 searchboard/
 ├── cmd/searchboard/        # entry point, dependency wiring, graceful shutdown
+├── framework/              # in-house HTTP framework (see framework.md)
 ├── internal/
 │   ├── config/             # YAML / environment configuration
 │   ├── domain/             # pure domain models

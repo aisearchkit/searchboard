@@ -8,7 +8,7 @@
 set -euo pipefail
 
 TYPES='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
-SCOPES='server|api|esclient|tsdb|collector|agenthub|logengine|migration|inspector|store|config|domain|matrix|web|agent|ci|docs|deps|repo|release'
+SCOPES='server|framework|api|esclient|tsdb|collector|agenthub|logengine|migration|inspector|store|config|domain|matrix|web|agent|ci|docs|deps|repo|release'
 MAX_LENGTH=72
 
 title="${1:-}"
