@@ -61,6 +61,7 @@ flowchart TB
 | `framework/binding` | Struct binding and `binding:"required"` validation |
 | `framework/codec` | JSON codec (sonic) |
 | `framework/middleware` | Ready-made middleware |
+| `framework/websocket` | Server side of RFC 6455 on top of a hijacked connection |
 | `framework/ut` | Run a request through a server without a network, for tests |
 
 ## Quick start
@@ -155,6 +156,78 @@ flowchart LR
 - **standard** uses one goroutine per connection and a `bufio` reader. Its buffer size (64 KiB by default) caps the largest request header it can read.
 - Both implement `network.Transport`. Pass your own with `framework.WithTransport`.
 
+## TLS and HTTP/2
+
+`WithTLS(cfg)` serves HTTPS. TLS needs the standard transport, so the server uses it instead of netpoll unless `WithTransport` says otherwise. The minimum version defaults to TLS 1.2 and the handshake has its own 10 second timeout, so a slow client cannot hold a connection open before sending a request.
+
+```mermaid
+flowchart TD
+    A["Accepted TCP connection"] --> B["TLS handshake (own timeout)"]
+    B --> C{"Negotiated ALPN protocol"}
+    C -- "h2" --> D["golang.org/x/net/http2<br/>one stream per request"]
+    C -- "http/1.1" --> E["Framework HTTP/1.1 parser"]
+    D --> F["Server.ServeRequest<br/>router + middleware"]
+    E --> F
+```
+
+- HTTP/2 is on by default with TLS. Turn it off with `WithHTTP2(false)`. Cleartext HTTP/2 (h2c) is not supported.
+- Each HTTP/2 stream goes through the same router and middleware as HTTP/1.1. Its `ctx` is canceled when the client resets the stream or the connection drops, which HTTP/1.1 cannot report.
+- The body limit (`WithMaxBodyBytes`) and the header limit apply to HTTP/2 as well. Hop-by-hop headers are never sent.
+- `c.Scheme()` returns `https` for both protocols.
+
+## WebSocket
+
+`framework/websocket` implements the server side of RFC 6455. It needs to take over the TCP connection, which only the standard transport allows:
+
+```go
+s := framework.New(framework.WithTransport(standard.New()))
+
+upgrader := &websocket.Upgrader{ReadLimit: 1 << 20}
+s.GET("/ws", func(ctx context.Context, c *framework.Context) {
+    _ = upgrader.Upgrade(c, func(conn *websocket.Conn) {
+        for {
+            kind, data, err := conn.ReadMessage()
+            if err != nil {
+                return // *websocket.CloseError for a normal or failed close
+            }
+            _ = conn.WriteMessage(kind, data)
+        }
+    })
+})
+```
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant S as Server
+    participant U as Upgrader
+    participant H as Handler
+
+    B->>S: GET /ws with Upgrade headers
+    S->>U: Upgrade(c, handler)
+    U->>U: validate method, headers, key, origin
+    alt invalid
+        U-->>B: 400, 403, 405 or 426
+    else valid
+        U->>S: Hijack the connection
+        U-->>B: 101 Switching Protocols
+        U->>H: handler(conn)
+        loop until close
+            B->>H: masked frames
+            H->>B: unmasked frames
+        end
+        H-->>U: returns
+        U->>B: close connection
+    end
+```
+
+- The default origin policy only accepts requests without an `Origin` header or with the same host as the request. Allow other origins explicitly with `CheckOrigin`.
+- `ReadMessage` answers pings, reassembles fragments, validates UTF-8 for text messages, enforces `ReadLimit` (close code 1009) and rejects protocol violations such as unmasked client frames or reserved bits (close code 1002). A close frame from the peer is echoed and returned as `*CloseError`.
+- Writes are safe from several goroutines and are bounded by `WriteTimeout`. `ReadMessage` must be called from one goroutine.
+- A hijacked connection stops counting as an in-flight request, so a graceful `Shutdown` does not wait for it. Close WebSockets from a function registered with `Server.RegisterOnShutdown`, for example by sending close code 1001.
+- On the default netpoll transport, or over HTTP/2, `Upgrade` answers `501` and returns `framework.ErrHijackUnsupported`.
+- Extensions such as permessage-deflate are not supported.
+
 ## Graceful shutdown
 
 ```mermaid
@@ -227,12 +300,13 @@ flowchart TD
 | `github.com/cloudwego/netpoll` | Event-loop transport |
 | `github.com/bytedance/sonic` | JSON codec in standard-library compatible mode |
 | `github.com/bytedance/gopkg` (`lang/mcache`) | Pooled buffers for request bodies |
+| `golang.org/x/net/http2` | HTTP/2 over TLS |
 
 sonic below v1.15.5 does not support Go 1.27: it falls back to `encoding/json` and prints a warning at start-up. Keep sonic at v1.15.5 or newer. The codec is isolated in `framework/codec`, so swapping it is a one-file change.
 
 ## Not supported
 
-HTTP/2, TLS termination and WebSocket upgrades. They can be added behind the existing layers when needed.
+Cleartext HTTP/2 (h2c), WebSocket over HTTP/2, WebSocket extensions (permessage-deflate), streaming responses such as Server-Sent Events (responses are buffered and written once), and range requests for static files. They can be added behind the existing layers when needed.
 
 ## Testing
 

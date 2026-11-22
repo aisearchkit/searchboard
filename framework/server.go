@@ -2,6 +2,7 @@ package framework
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"golang.org/x/net/http2"
 
 	"github.com/searchboard/searchboard/framework/network"
 	"github.com/searchboard/searchboard/framework/protocol"
@@ -33,6 +36,8 @@ type Server struct {
 	transport network.Transport
 	pool      sync.Pool
 	trusted   []*net.IPNet
+	tlsConfig *tls.Config
+	h2        *http2.Server
 
 	noRoute  HandlersChain
 	noMethod HandlersChain
@@ -42,8 +47,9 @@ type Server struct {
 	inflight atomic.Int64
 	draining atomic.Bool
 
-	mu   sync.Mutex
-	addr net.Addr
+	mu         sync.Mutex
+	addr       net.Addr
+	onShutdown []func()
 }
 
 // New creates a server.
@@ -59,6 +65,7 @@ func New(opts ...Option) *Server {
 	}
 	s.trusted = trusted
 
+	s.setupTLS()
 	s.transport = s.opts.transport
 	if s.transport == nil {
 		s.transport = newDefaultTransport(s.opts.idleTimeout)
@@ -119,6 +126,9 @@ func (s *Server) Listen() (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.tlsConfig != nil {
+		ln = tls.NewListener(ln, s.tlsConfig)
+	}
 	s.mu.Lock()
 	s.addr = ln.Addr()
 	s.mu.Unlock()
@@ -175,6 +185,13 @@ func (s *Server) Spin() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.draining.Store(true)
 
+	s.mu.Lock()
+	callbacks := append([]func(){}, s.onShutdown...)
+	s.mu.Unlock()
+	for _, fn := range callbacks {
+		go fn()
+	}
+
 	var waitErr error
 	ticker := time.NewTicker(shutdownPollInterval)
 	defer ticker.Stop()
@@ -229,11 +246,14 @@ func (s *Server) serveConn(ctx context.Context, conn network.Conn) error {
 // serveRequest reads, handles and answers one request.
 func (s *Server) serveRequest(ctx context.Context, conn network.Conn) (keepAlive bool, err error) {
 	s.inflight.Add(1)
-	defer s.inflight.Add(-1)
 
 	c := s.pool.Get().(*Context)
 	c.reset()
+	c.conn = conn
 	defer func() {
+		if !c.hijacked { // Hijack already released its in-flight slot
+			s.inflight.Add(-1)
+		}
 		c.reset()
 		s.pool.Put(c)
 	}()
@@ -245,6 +265,9 @@ func (s *Server) serveRequest(ctx context.Context, conn network.Conn) (keepAlive
 	}
 	req.RemoteAddr = conn.RemoteAddr().String()
 	req.Scheme = "http"
+	if secure, ok := conn.(network.Secure); ok && secure.IsTLS() {
+		req.Scheme = "https"
+	}
 
 	if http1.ExpectsContinue(req) {
 		if err := http1.WriteContinue(conn); err != nil {
@@ -262,6 +285,10 @@ func (s *Server) serveRequest(ctx context.Context, conn network.Conn) (keepAlive
 	}
 
 	s.handle(ctx, c)
+
+	if c.hijacked {
+		return false, nil // the handler owns the connection now
+	}
 
 	keepAlive = http1.KeepAlive(req) && !s.opts.disableKeepAlive && !s.draining.Load()
 	_ = conn.SetWriteTimeout(s.opts.writeTimeout)
