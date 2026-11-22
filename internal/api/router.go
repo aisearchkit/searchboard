@@ -2,19 +2,22 @@
 package api
 
 import (
+	"context"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-
+	"github.com/searchboard/searchboard/framework"
+	"github.com/searchboard/searchboard/framework/middleware"
 	"github.com/searchboard/searchboard/internal/tsdb"
 	"github.com/searchboard/searchboard/web"
 )
 
-// Deps are the collaborators the API needs. All fields except Metrics are required.
+// apiPrefix is the URL prefix of every JSON endpoint.
+const apiPrefix = "/api/"
+
+// Deps are the collaborators the API needs. All fields except Metrics and Log are required.
 type Deps struct {
 	Log       *slog.Logger
 	Clusters  ClusterRepository
@@ -29,50 +32,53 @@ type server struct {
 	connector Connector
 }
 
-// NewRouter builds the HTTP handler for the whole application.
-func NewRouter(d Deps) http.Handler {
-	s := &server{log: d.Log, clusters: d.Clusters, connector: d.Connector}
+// New builds the HTTP server for the whole application: the JSON API under
+// /api/v1 and the embedded web UI for every other path. Extra options, such as
+// the listen address, are passed to the framework.
+func New(d Deps, opts ...framework.Option) *framework.Server {
+	log := d.Log
+	if log == nil {
+		log = slog.Default()
+	}
+	s := &server{log: log, clusters: d.Clusters, connector: d.Connector}
 
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
+	base := []framework.Option{framework.WithLogger(log), framework.WithMaxBodyBytes(maxBodyBytes)}
+	app := framework.New(append(base, opts...)...)
+	app.Use(middleware.RequestID(), middleware.AccessLog(log), middleware.Recovery(log))
 
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-		})
-
-		r.Route("/clusters", func(r chi.Router) {
-			r.Get("/", s.listClusters)
-			r.Post("/", s.createCluster)
-			r.Route("/{id}", func(r chi.Router) {
-				r.Delete("/", s.deleteCluster)
-				r.Get("/matrix", s.getMatrix)
-				r.Get("/allocation-explain", s.getAllocationExplain)
-			})
-		})
+	v1 := app.Group(apiPrefix + "v1")
+	v1.GET("/healthz", func(_ context.Context, c *framework.Context) {
+		c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	r.Handle("/*", spaHandler())
-	return r
-}
+	clusters := v1.Group("/clusters")
+	clusters.GET("", s.listClusters)
+	clusters.POST("", s.createCluster)
+	clusters.DELETE("/:id", s.deleteCluster)
+	clusters.GET("/:id/matrix", s.getMatrix)
+	clusters.GET("/:id/allocation-explain", s.getAllocationExplain)
 
-// spaHandler serves the embedded Vite build and falls back to index.html so
-// client-side routes survive a page reload.
-func spaHandler() http.Handler {
-	sub, err := fs.Sub(web.Dist, "dist")
+	app.NoMethod(func(_ context.Context, c *framework.Context) {
+		writeError(c, http.StatusMethodNotAllowed, "method not allowed")
+	})
+
+	assets, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		panic(err) // the embedded directory is fixed at compile time
 	}
-	files := http.FileServerFS(sub)
+	app.NoRoute(notFoundOrWebUI(assets))
+	return app
+}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		name := strings.TrimPrefix(req.URL.Path, "/")
-		if name == "" {
-			name = "index.html"
+// notFoundOrWebUI answers unknown API paths with a JSON 404 and serves the web
+// UI for everything else.
+func notFoundOrWebUI(assets fs.FS) framework.HandlerFunc {
+	webUI := spaHandler(assets)
+	return func(ctx context.Context, c *framework.Context) {
+		if strings.HasPrefix(c.Path(), apiPrefix) {
+			writeError(c, http.StatusNotFound, "not found")
+			return
 		}
-		if _, err := fs.Stat(sub, name); err != nil {
-			req.URL.Path = "/"
-		}
-		files.ServeHTTP(w, req)
-	})
+		webUI(ctx, c)
+	}
 }

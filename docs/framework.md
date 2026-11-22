@@ -2,7 +2,7 @@
 
 `framework/` is Searchboard's in-house HTTP/1.1 server framework. It is modeled on [cloudwego/hertz](https://github.com/cloudwego/hertz) and built on the same ideas: a layered stack, a pluggable transport based on [netpoll](https://github.com/cloudwego/netpoll), pooled request contexts and a fast JSON codec ([sonic](https://github.com/bytedance/sonic)). It is deliberately small: only what Searchboard needs, with no code generation and no reflection-heavy magic.
 
-**Status:** the framework is complete and tested but not wired in yet. `internal/api` still uses `chi`; migrating it onto this framework is a separate change.
+**Status:** `internal/api` and `cmd/searchboard` run on this framework; the server no longer depends on `chi`.
 
 The framework lives in the same Go module as the server and has no dependency on any other Searchboard package, so it can be moved into its own module later without changes.
 

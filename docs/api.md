@@ -8,6 +8,10 @@ All endpoints live under `/api/v1`, accept and return JSON, and report errors as
 
 Cluster credentials are write-only: no endpoint ever returns a password.
 
+Every response carries an `X-Request-Id` header. A client may send its own (up to 128 characters of letters, digits, `-`, `_` and `.`); otherwise one is generated. The same ID appears in the access log, which makes a failing request easy to find.
+
+The server is built on the in-house [framework](framework.md). Paths under `/api/` that match no route answer a JSON `404`; wrong methods answer a JSON `405` with an `Allow` header. Every other path serves the embedded web UI: files as they are (content-hashed assets are cached for a year), and extension-less client-side routes get `index.html`.
+
 ## Data flow
 
 ```mermaid
@@ -104,5 +108,8 @@ Query parameters: `index` (required), `shard` (non-negative integer, required), 
 
 | Status | When |
 | :--- | :--- |
-| `404` | Unknown cluster ID |
+| `404` | Unknown cluster ID, or an unknown path under `/api/` |
+| `405` | Method not allowed for the path, with an `Allow` header |
+| `413` | Request body larger than 1 MiB |
+| `500` | Unexpected server error. Details are logged with the request ID, never returned |
 | `502` | The cluster is unreachable or answered with an error. Upstream response bodies are logged but never returned |

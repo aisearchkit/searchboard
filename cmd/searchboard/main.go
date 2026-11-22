@@ -1,15 +1,13 @@
+// Command searchboard is the Searchboard server.
 package main
 
 import (
-	"context"
 	"flag"
+	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
+	"github.com/searchboard/searchboard/framework"
 	"github.com/searchboard/searchboard/internal/api"
 	"github.com/searchboard/searchboard/internal/config"
 	"github.com/searchboard/searchboard/internal/store"
@@ -21,52 +19,44 @@ func main() {
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	cfg, err := config.Load(*cfgPath)
-	if err != nil {
-		log.Error("load config", "err", err)
+	if err := run(log, *cfgPath); err != nil {
+		log.Error("searchboard failed", "err", err)
 		os.Exit(1)
+	}
+}
+
+// run wires the dependencies and serves until SIGINT or SIGTERM. It returns
+// instead of exiting so deferred cleanups (closing the database) always run.
+func run(log *slog.Logger, cfgPath string) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
 	}
 
 	db, err := store.Open(cfg.Storage.SQLitePath)
 	if err != nil {
-		log.Error("open sqlite", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("open sqlite: %w", err)
 	}
 	defer db.Close()
 
 	metrics, err := tsdb.New(cfg.TSDB)
 	if err != nil {
-		log.Error("init tsdb", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("init tsdb: %w", err)
 	}
 	defer metrics.Close()
 
-	srv := &http.Server{
-		Addr: cfg.Server.Listen,
-		Handler: api.NewRouter(api.Deps{
-			Log:       log,
-			Clusters:  db,
-			Connector: api.NewClientCache(),
-			Metrics:   metrics,
-		}),
-		ReadHeaderTimeout: 10 * time.Second,
+	app := api.New(api.Deps{
+		Log:       log,
+		Clusters:  db,
+		Connector: api.NewClientCache(),
+		Metrics:   metrics,
+	}, framework.WithHostPorts(cfg.Server.Listen))
+
+	log.Info("searchboard listening", "addr", cfg.Server.Listen)
+	// Spin serves until a signal arrives, then drains in-flight requests.
+	if err := app.Spin(); err != nil {
+		return fmt.Errorf("http server: %w", err)
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	go func() {
-		log.Info("searchboard listening", "addr", cfg.Server.Listen)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("http server", "err", err)
-			stop()
-		}
-	}()
-
-	<-ctx.Done()
-	log.Info("shutting down")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(shutdownCtx)
+	log.Info("stopped")
+	return nil
 }

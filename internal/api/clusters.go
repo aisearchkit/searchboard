@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,8 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
+	"github.com/searchboard/searchboard/framework"
 	"github.com/searchboard/searchboard/internal/domain"
 )
 
@@ -81,29 +81,29 @@ func (r *createClusterRequest) validate() error {
 	return nil
 }
 
-func (s *server) listClusters(w http.ResponseWriter, r *http.Request) {
-	clusters, err := s.clusters.ListClusters(r.Context())
+func (s *server) listClusters(ctx context.Context, c *framework.Context) {
+	clusters, err := s.clusters.ListClusters(ctx)
 	if err != nil {
-		writeFailure(w, s.log, err)
+		writeFailure(c, s.log, err)
 		return
 	}
 	response := make([]clusterResponse, len(clusters))
 	for i, cluster := range clusters {
 		response[i] = toClusterResponse(cluster)
 	}
-	writeJSON(w, http.StatusOK, response)
+	c.JSON(http.StatusOK, response)
 }
 
-func (s *server) createCluster(w http.ResponseWriter, r *http.Request) {
+func (s *server) createCluster(ctx context.Context, c *framework.Context) {
 	var request createClusterRequest
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+	decoder := json.NewDecoder(bytes.NewReader(c.Body()))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		writeError(c, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if err := request.validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -115,31 +115,31 @@ func (s *server) createCluster(w http.ResponseWriter, r *http.Request) {
 	// Verify connectivity and credentials before storing anything.
 	reader, err := s.connector.Connect(candidate)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), connectionTestLimit)
+	testCtx, cancel := context.WithTimeout(ctx, connectionTestLimit)
 	defer cancel()
-	if _, err := reader.Version(ctx); err != nil {
+	if _, err := reader.Version(testCtx); err != nil {
 		s.log.Warn("cluster connection test failed", "name", candidate.Name, "err", err)
-		writeError(w, http.StatusUnprocessableEntity, "could not connect to the cluster; check the URL, credentials and TLS settings")
+		writeError(c, http.StatusUnprocessableEntity, "could not connect to the cluster; check the URL, credentials and TLS settings")
 		return
 	}
 
-	created, err := s.clusters.CreateCluster(r.Context(), candidate)
+	created, err := s.clusters.CreateCluster(ctx, candidate)
 	if err != nil {
-		writeFailure(w, s.log, err)
+		writeFailure(c, s.log, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toClusterResponse(created))
+	c.JSON(http.StatusCreated, toClusterResponse(created))
 }
 
-func (s *server) deleteCluster(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	if err := s.clusters.DeleteCluster(r.Context(), id); err != nil {
-		writeFailure(w, s.log, err)
+func (s *server) deleteCluster(ctx context.Context, c *framework.Context) {
+	id := c.Param("id")
+	if err := s.clusters.DeleteCluster(ctx, id); err != nil {
+		writeFailure(c, s.log, err)
 		return
 	}
 	s.connector.Forget(id)
-	w.WriteHeader(http.StatusNoContent)
+	c.NoContent(http.StatusNoContent)
 }

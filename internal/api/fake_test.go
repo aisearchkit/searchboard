@@ -5,13 +5,12 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"sort"
-	"strings"
 	"sync"
 	"testing"
 
+	"github.com/searchboard/searchboard/framework"
+	"github.com/searchboard/searchboard/framework/ut"
 	"github.com/searchboard/searchboard/internal/domain"
 	"github.com/searchboard/searchboard/internal/esclient"
 )
@@ -107,21 +106,25 @@ func (f *fakeReader) AllocationExplain(context.Context, domain.AllocationExplain
 
 // fakeConnector returns the same reader for every cluster and records usage.
 type fakeConnector struct {
-	reader    *fakeReader
-	connected []domain.Cluster
-	forgotten []string
+	reader         *fakeReader
+	connected      []domain.Cluster
+	forgotten      []string
+	panicOnConnect bool
 }
 
 func (f *fakeConnector) Connect(c domain.Cluster) (esclient.ClusterReader, error) {
+	if f.panicOnConnect {
+		panic("connector exploded")
+	}
 	f.connected = append(f.connected, c)
 	return f.reader, nil
 }
 
 func (f *fakeConnector) Forget(id string) { f.forgotten = append(f.forgotten, id) }
 
-// testEnv wires a router against fakes.
+// testEnv wires the real server against fakes.
 type testEnv struct {
-	router    http.Handler
+	server    *framework.Server
 	repo      *memoryRepo
 	connector *fakeConnector
 	reader    *fakeReader
@@ -131,24 +134,24 @@ func newTestEnv() *testEnv {
 	reader := &fakeReader{}
 	connector := &fakeConnector{reader: reader}
 	repo := newMemoryRepo()
-	router := NewRouter(Deps{
+	server := New(Deps{
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Clusters:  repo,
 		Connector: connector,
 	})
-	return &testEnv{router: router, repo: repo, connector: connector, reader: reader}
+	return &testEnv{server: server, repo: repo, connector: connector, reader: reader}
 }
 
-func (e *testEnv) do(t *testing.T, method, path, body string) *httptest.ResponseRecorder {
+// do sends a request through routing and middleware without a network.
+func (e *testEnv) do(t *testing.T, method, path, body string) *ut.Result {
 	t.Helper()
-	var reader io.Reader
+	var payload []byte
+	headers := []ut.Header{}
 	if body != "" {
-		reader = strings.NewReader(body)
+		payload = []byte(body)
+		headers = append(headers, ut.Header{Key: "Content-Type", Value: "application/json"})
 	}
-	req := httptest.NewRequest(method, path, reader)
-	recorder := httptest.NewRecorder()
-	e.router.ServeHTTP(recorder, req)
-	return recorder
+	return ut.PerformRequest(e.server, method, path, payload, headers...)
 }
 
 // addCluster registers a cluster directly in the repository and returns its ID.

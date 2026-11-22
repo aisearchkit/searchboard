@@ -15,8 +15,8 @@ const validCluster = `{"name":"prod-logs","url":"https://es.example.com:9200/","
 
 func TestHealthz(t *testing.T) {
 	rec := newTestEnv().do(t, http.MethodGet, "/api/v1/healthz", "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok"`) {
-		t.Fatalf("healthz = %d %s", rec.Code, rec.Body)
+	if rec.Status != http.StatusOK || !strings.Contains(rec.BodyString(), `"ok"`) {
+		t.Fatalf("healthz = %d %s", rec.Status, rec.Body)
 	}
 }
 
@@ -24,15 +24,15 @@ func TestClusterLifecycle(t *testing.T) {
 	env := newTestEnv()
 
 	created := env.do(t, http.MethodPost, "/api/v1/clusters", validCluster)
-	if created.Code != http.StatusCreated {
-		t.Fatalf("create = %d %s", created.Code, created.Body)
+	if created.Status != http.StatusCreated {
+		t.Fatalf("create = %d %s", created.Status, created.Body)
 	}
-	if strings.Contains(created.Body.String(), "hunter2") || strings.Contains(created.Body.String(), "password") {
+	if strings.Contains(created.BodyString(), "hunter2") || strings.Contains(created.BodyString(), "password") {
 		t.Fatalf("create response leaks the password: %s", created.Body)
 	}
 
 	var cluster clusterResponse
-	if err := json.Unmarshal(created.Body.Bytes(), &cluster); err != nil {
+	if err := json.Unmarshal(created.Body, &cluster); err != nil {
 		t.Fatal(err)
 	}
 	if cluster.URL != "https://es.example.com:9200" || cluster.Env != domain.EnvProd {
@@ -43,29 +43,29 @@ func TestClusterLifecycle(t *testing.T) {
 	}
 
 	list := env.do(t, http.MethodGet, "/api/v1/clusters", "")
-	if list.Code != http.StatusOK || strings.Contains(list.Body.String(), "hunter2") {
-		t.Fatalf("list = %d %s", list.Code, list.Body)
+	if list.Status != http.StatusOK || strings.Contains(list.BodyString(), "hunter2") {
+		t.Fatalf("list = %d %s", list.Status, list.Body)
 	}
 	var clusters []clusterResponse
-	if err := json.Unmarshal(list.Body.Bytes(), &clusters); err != nil || len(clusters) != 1 {
+	if err := json.Unmarshal(list.Body, &clusters); err != nil || len(clusters) != 1 {
 		t.Fatalf("list decode = %v, %v", clusters, err)
 	}
 
 	deleted := env.do(t, http.MethodDelete, "/api/v1/clusters/"+cluster.ID, "")
-	if deleted.Code != http.StatusNoContent {
-		t.Fatalf("delete = %d", deleted.Code)
+	if deleted.Status != http.StatusNoContent {
+		t.Fatalf("delete = %d", deleted.Status)
 	}
 	if len(env.connector.forgotten) != 1 || env.connector.forgotten[0] != cluster.ID {
 		t.Fatalf("connector cache not evicted: %v", env.connector.forgotten)
 	}
-	if again := env.do(t, http.MethodDelete, "/api/v1/clusters/"+cluster.ID, ""); again.Code != http.StatusNotFound {
-		t.Fatalf("second delete = %d, want 404", again.Code)
+	if again := env.do(t, http.MethodDelete, "/api/v1/clusters/"+cluster.ID, ""); again.Status != http.StatusNotFound {
+		t.Fatalf("second delete = %d, want 404", again.Status)
 	}
 }
 
 func TestListClustersEncodesEmptyArray(t *testing.T) {
 	rec := newTestEnv().do(t, http.MethodGet, "/api/v1/clusters", "")
-	if strings.TrimSpace(rec.Body.String()) != "[]" {
+	if strings.TrimSpace(rec.BodyString()) != "[]" {
 		t.Fatalf("body = %q, want []", rec.Body)
 	}
 }
@@ -85,8 +85,8 @@ func TestCreateClusterValidation(t *testing.T) {
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {
 			env := newTestEnv()
-			if rec := env.do(t, http.MethodPost, "/api/v1/clusters", body); rec.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want 400 (%s)", rec.Code, rec.Body)
+			if rec := env.do(t, http.MethodPost, "/api/v1/clusters", body); rec.Status != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 (%s)", rec.Status, rec.Body)
 			}
 			if len(env.connector.connected) != 0 {
 				t.Error("invalid input must not reach the cluster")
@@ -98,8 +98,8 @@ func TestCreateClusterValidation(t *testing.T) {
 func TestCreateClusterDefaultsEnvToDev(t *testing.T) {
 	env := newTestEnv()
 	rec := env.do(t, http.MethodPost, "/api/v1/clusters", `{"name":"a","url":"http://es:9200"}`)
-	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"env":"dev"`) {
-		t.Fatalf("create = %d %s", rec.Code, rec.Body)
+	if rec.Status != http.StatusCreated || !strings.Contains(rec.BodyString(), `"env":"dev"`) {
+		t.Fatalf("create = %d %s", rec.Status, rec.Body)
 	}
 }
 
@@ -108,8 +108,8 @@ func TestCreateClusterRequiresReachableCluster(t *testing.T) {
 	env.reader.versionErr = errBoom
 
 	rec := env.do(t, http.MethodPost, "/api/v1/clusters", validCluster)
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422 (%s)", rec.Code, rec.Body)
+	if rec.Status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 (%s)", rec.Status, rec.Body)
 	}
 	if clusters, _ := env.repo.ListClusters(context.Background()); len(clusters) != 0 {
 		t.Fatal("an unreachable cluster must not be stored")
@@ -119,8 +119,8 @@ func TestCreateClusterRequiresReachableCluster(t *testing.T) {
 func TestCreateClusterRejectsDuplicateName(t *testing.T) {
 	env := newTestEnv()
 	env.addCluster(t, "prod-logs")
-	if rec := env.do(t, http.MethodPost, "/api/v1/clusters", validCluster); rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409", rec.Code)
+	if rec := env.do(t, http.MethodPost, "/api/v1/clusters", validCluster); rec.Status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Status)
 	}
 }
 
@@ -129,10 +129,10 @@ func TestMatrix(t *testing.T) {
 	id := env.addCluster(t, "demo")
 
 	rec := env.do(t, http.MethodGet, "/api/v1/clusters/"+id+"/matrix", "")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d %s", rec.Code, rec.Body)
+	if rec.Status != http.StatusOK {
+		t.Fatalf("status = %d %s", rec.Status, rec.Body)
 	}
-	if strings.Contains(rec.Body.String(), "hunter2") {
+	if strings.Contains(rec.BodyString(), "hunter2") {
 		t.Fatalf("matrix response leaks the password: %s", rec.Body)
 	}
 
@@ -153,7 +153,7 @@ func TestMatrix(t *testing.T) {
 		} `json:"indices"`
 		GeneratedAt string `json:"generated_at"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+	if err := json.Unmarshal(rec.Body, &body); err != nil {
 		t.Fatal(err)
 	}
 
@@ -173,8 +173,8 @@ func TestMatrix(t *testing.T) {
 }
 
 func TestMatrixUnknownCluster(t *testing.T) {
-	if rec := newTestEnv().do(t, http.MethodGet, "/api/v1/clusters/missing/matrix", ""); rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", rec.Code)
+	if rec := newTestEnv().do(t, http.MethodGet, "/api/v1/clusters/missing/matrix", ""); rec.Status != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Status)
 	}
 }
 
@@ -184,10 +184,10 @@ func TestMatrixUpstreamFailureIsBadGateway(t *testing.T) {
 	env.reader.healthErr = &esclient.APIError{Status: http.StatusUnauthorized, Body: `{"internal":"secret detail"}`}
 
 	rec := env.do(t, http.MethodGet, "/api/v1/clusters/"+id+"/matrix", "")
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502", rec.Code)
+	if rec.Status != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", rec.Status)
 	}
-	if strings.Contains(rec.Body.String(), "secret detail") {
+	if strings.Contains(rec.BodyString(), "secret detail") {
 		t.Fatalf("upstream error body leaked: %s", rec.Body)
 	}
 }
@@ -198,8 +198,8 @@ func TestAllocationExplain(t *testing.T) {
 	env.reader.explain = domain.AllocationExplain{Index: "logs", Shard: 0, CurrentState: "unassigned", CanAllocate: "no"}
 
 	rec := env.do(t, http.MethodGet, "/api/v1/clusters/"+id+"/allocation-explain?index=logs&shard=0&primary=false", "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"can_allocate":"no"`) {
-		t.Fatalf("explain = %d %s", rec.Code, rec.Body)
+	if rec.Status != http.StatusOK || !strings.Contains(rec.BodyString(), `"can_allocate":"no"`) {
+		t.Fatalf("explain = %d %s", rec.Status, rec.Body)
 	}
 }
 
@@ -215,8 +215,8 @@ func TestAllocationExplainValidation(t *testing.T) {
 		"bad primary":    "?index=logs&shard=0&primary=maybe",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if rec := env.do(t, http.MethodGet, base+query, ""); rec.Code != http.StatusBadRequest {
-				t.Fatalf("status = %d, want 400", rec.Code)
+			if rec := env.do(t, http.MethodGet, base+query, ""); rec.Status != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", rec.Status)
 			}
 		})
 	}
@@ -228,7 +228,7 @@ func TestAllocationExplainOfAssignedShard(t *testing.T) {
 	env.reader.explainErr = &esclient.APIError{Status: http.StatusBadRequest, Body: "unable to find any unassigned shards"}
 
 	rec := env.do(t, http.MethodGet, "/api/v1/clusters/"+id+"/allocation-explain?index=logs&shard=0&primary=true", "")
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422", rec.Code)
+	if rec.Status != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Status)
 	}
 }
