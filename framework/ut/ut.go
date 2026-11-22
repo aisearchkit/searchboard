@@ -30,7 +30,7 @@ func (r *Result) BodyString() string { return string(r.Body) }
 // may include a query string. It panics on a malformed target, because that is
 // a mistake in the test itself.
 func PerformRequest(s *framework.Server, method, target string, body []byte, headers ...Header) *Result {
-	req := &protocol.Request{Method: method, Proto: "HTTP/1.1", Host: "example.com", RemoteAddr: "192.0.2.1:1234"}
+	req := &protocol.Request{Method: method, Proto: "HTTP/1.1", Scheme: "http", Host: "example.com", RemoteAddr: "192.0.2.1:1234"}
 	if err := req.SetTarget(target); err != nil {
 		panic("ut: " + err.Error())
 	}

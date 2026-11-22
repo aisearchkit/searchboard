@@ -23,6 +23,8 @@ type Request struct {
 	Host       string
 	Header     Header
 	RemoteAddr string
+	// Scheme is "http" or "https", the scheme of the connection itself.
+	Scheme string
 
 	body       []byte
 	bodyPooled bool
@@ -107,7 +109,7 @@ func (r *Request) SetTarget(target string) error {
 // Reset clears the request for reuse and returns pooled memory.
 func (r *Request) Reset() {
 	r.releaseBody()
-	r.Method, r.Proto, r.RequestURI, r.Path, r.RawQuery, r.Host, r.RemoteAddr = "", "", "", "", "", "", ""
+	r.Method, r.Proto, r.RequestURI, r.Path, r.RawQuery, r.Host, r.RemoteAddr, r.Scheme = "", "", "", "", "", "", "", ""
 	r.Header.Reset()
 	r.query, r.queryParsed = nil, false
 }
