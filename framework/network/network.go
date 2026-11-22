@@ -70,3 +70,16 @@ type Transport interface {
 	// that want a graceful stop must wait for in-flight requests first.
 	Shutdown(ctx context.Context) error
 }
+
+// Hijacker is implemented by connections whose ownership can be taken over, for
+// example to switch to the WebSocket protocol. After Hijack the transport no
+// longer reads from, writes to or closes the connection. Bytes the transport
+// had already buffered are returned by the net.Conn's Read before new data.
+type Hijacker interface {
+	Hijack() (net.Conn, error)
+}
+
+// Secure is implemented by connections that know whether they use TLS.
+type Secure interface {
+	IsTLS() bool
+}

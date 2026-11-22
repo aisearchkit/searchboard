@@ -8,6 +8,7 @@ import (
 
 	"github.com/searchboard/searchboard/framework/binding"
 	"github.com/searchboard/searchboard/framework/codec"
+	"github.com/searchboard/searchboard/framework/network"
 	"github.com/searchboard/searchboard/framework/protocol"
 	"github.com/searchboard/searchboard/framework/route"
 )
@@ -45,6 +46,9 @@ type Context struct {
 	multipartErr  error
 	multipartDone bool
 
+	conn     network.Conn // nil for HTTP/2 and in-process requests
+	hijacked bool
+
 	ownRequest  *protocol.Request
 	ownResponse *protocol.Response
 }
@@ -71,6 +75,7 @@ func (c *Context) reset() {
 	clear(c.keys)
 	c.form, c.formDone = nil, false
 	c.releaseMultipart()
+	c.conn, c.hijacked = nil, false
 }
 
 // Next runs the remaining handlers of the chain. Middleware calls it to wrap

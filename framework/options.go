@@ -1,6 +1,7 @@
 package framework
 
 import (
+	"crypto/tls"
 	"log/slog"
 	"time"
 
@@ -23,6 +24,8 @@ type options struct {
 	handleMethodNotAllowed bool
 	disableKeepAlive       bool
 	trustedProxies         []string
+	tlsConfig              *tls.Config
+	disableHTTP2           bool
 
 	logger    *slog.Logger
 	transport network.Transport
