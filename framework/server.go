@@ -299,11 +299,43 @@ func (s *Server) serveRequest(ctx context.Context, conn network.Conn) (keepAlive
 	return keepAlive && err == nil, err
 }
 
+// Limits of the lingering close that follows a rejected request.
+const (
+	maxDrainBytes = 1 << 20
+	drainTimeout  = 200 * time.Millisecond
+)
+
 // replyProtocolError answers a malformed request when the error maps to an HTTP
 // status. I/O errors such as timeouts and resets get no response.
+//
+// The client may still be sending, for example the body of an oversized upload.
+// Closing right away would make the kernel reset the connection and the client
+// would report a reset instead of reading our response, so pending input is
+// drained briefly before the connection is closed.
 func replyProtocolError(conn network.Conn, err error) {
-	if status := http1.StatusOf(err); status != 0 {
-		_ = http1.WriteError(conn, status, err.Error())
+	status := http1.StatusOf(err)
+	if status == 0 {
+		return
+	}
+	_ = http1.WriteError(conn, status, err.Error())
+	drainInput(conn)
+}
+
+// drainInput discards incoming data for a short time and up to maxDrainBytes.
+func drainInput(conn network.Conn) {
+	_ = conn.SetReadTimeout(drainTimeout)
+	for drained := 0; drained < maxDrainBytes; {
+		if conn.Len() == 0 {
+			if _, err := conn.Peek(1); err != nil {
+				return // nothing more arrives: the client stopped or timed out
+			}
+		}
+		n := conn.Len()
+		if n == 0 || conn.Skip(n) != nil {
+			return
+		}
+		_ = conn.Release()
+		drained += n
 	}
 }
 

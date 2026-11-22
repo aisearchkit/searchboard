@@ -6,7 +6,6 @@ require (
 	github.com/bytedance/gopkg v0.1.4
 	github.com/bytedance/sonic v1.15.5
 	github.com/cloudwego/netpoll v0.7.5
-	github.com/go-chi/chi/v5 v5.5.0
 	golang.org/x/net v0.63.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.62.0

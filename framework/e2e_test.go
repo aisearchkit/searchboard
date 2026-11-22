@@ -526,3 +526,20 @@ func TestE2EShutdownTimeoutIsReported(t *testing.T) {
 		}
 	})
 }
+
+func TestE2EOversizedUploadGetsA413NotAConnectionReset(t *testing.T) {
+	forEachTransport(t, func(t *testing.T, tr func() network.Transport) {
+		r := start(t, tr(), echoRoutes, framework.WithMaxBodyBytes(1000))
+
+		// The body is far larger than what the kernel buffers, so the client is
+		// still writing when the server rejects the request.
+		resp, err := newClient().Post(r.url("/echo"), "application/octet-stream", bytes.NewReader(make([]byte, 900<<10)))
+		if err != nil {
+			t.Fatalf("the client must read the 413 instead of seeing a reset: %v", err)
+		}
+		_ = readAll(t, resp)
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413", resp.StatusCode)
+		}
+	})
+}
