@@ -95,3 +95,23 @@ type AllocationDecider struct {
 	Decision    string `json:"decision"`
 	Explanation string `json:"explanation"`
 }
+
+// SchemaField is one searchable field of an index mapping.
+type SchemaField struct {
+	Path string `json:"path"` // dotted path such as "user.name" or "title.keyword"
+	Type string `json:"type"`
+}
+
+// SchemaIndex is an index with its aliases and flattened mapping fields.
+type SchemaIndex struct {
+	Name    string        `json:"name"`
+	Aliases []string      `json:"aliases"`
+	Fields  []SchemaField `json:"fields"`
+}
+
+// Schema describes the indices of a cluster for editor completion.
+type Schema struct {
+	Indices []SchemaIndex `json:"indices"`
+	// Truncated is true when limits cut the indices or fields short.
+	Truncated bool `json:"truncated"`
+}

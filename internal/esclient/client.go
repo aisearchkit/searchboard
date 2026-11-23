@@ -69,48 +69,76 @@ func New(cfg Config) (*Client, error) {
 	}, nil
 }
 
+// ErrResponseTooLarge is returned when a response exceeds the allowed size.
+var ErrResponseTooLarge = errors.New("esclient: response is too large")
+
 // Do sends a request and returns the raw response body. A non-nil body is
 // encoded as JSON. Non-2xx responses are returned as *APIError.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body any) ([]byte, error) {
-	var reader io.Reader
+	var payload []byte
 	if body != nil {
 		encoded, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("esclient: encode request body: %w", err)
 		}
-		reader = bytes.NewReader(encoded)
+		payload = encoded
 	}
 
 	target := c.base.JoinPath(path)
 	target.RawQuery = query.Encode()
 
+	contentType := ""
+	if body != nil {
+		contentType = "application/json"
+	}
+	resp, err := c.roundTrip(ctx, method, target, payload, contentType, maxResponseBytes)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status < 200 || resp.Status > 299 {
+		return nil, newAPIError(resp.Status, resp.Body)
+	}
+	return resp.Body, nil
+}
+
+// RawResponse is a cluster response that has not been interpreted. Unlike Do,
+// a non-2xx status is not an error: the caller wants to see what the cluster said.
+type RawResponse struct {
+	Status      int
+	ContentType string
+	Body        []byte
+}
+
+// roundTrip sends one request and reads at most limit bytes of the response.
+func (c *Client) roundTrip(ctx context.Context, method string, target *url.URL, body []byte, contentType string, limit int64) (RawResponse, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
 	req, err := http.NewRequestWithContext(ctx, method, target.String(), reader)
 	if err != nil {
-		return nil, fmt.Errorf("esclient: build request: %w", err)
+		return RawResponse{}, fmt.Errorf("esclient: build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 	c.authenticate(req)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("esclient: %s %s: %w", method, path, err)
+		return RawResponse{}, fmt.Errorf("esclient: %s %s: %w", method, target.Path, err)
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("esclient: read response: %w", err)
+		return RawResponse{}, fmt.Errorf("esclient: read response: %w", err)
 	}
-	if len(data) > maxResponseBytes {
-		return nil, fmt.Errorf("esclient: response to %s %s exceeds %d bytes", method, path, maxResponseBytes)
+	if int64(len(data)) > limit {
+		return RawResponse{}, fmt.Errorf("%w: %s %s exceeds %d bytes", ErrResponseTooLarge, method, target.Path, limit)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, newAPIError(resp.StatusCode, data)
-	}
-	return data, nil
+	return RawResponse{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: data}, nil
 }
 
 // doJSON sends a request and decodes the JSON response into out.

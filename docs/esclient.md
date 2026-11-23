@@ -31,6 +31,31 @@ sequenceDiagram
 - **Bounded I/O.** Every call has a timeout, and responses are capped at 128 MiB.
 - **Typed errors.** A non-2xx response is an `*APIError`. Use `esclient.HasStatus(err, code)` to branch on it.
 
+## Raw requests for the console
+
+`Passthrough(ctx, method, path, body)` forwards a request exactly as the DevTools console typed it and returns the cluster's answer, including error statuses: a `404` or `400` from the cluster is an answer to show, not a failure of Searchboard.
+
+- The path may carry a query string (`logs-*/_search?size=1`).
+- It must stay below the configured base URL. `..` and `.` segments (also percent-encoded), absolute URLs, fragments, backslashes, whitespace and control characters are rejected with `ErrInvalidPath` before anything is sent.
+- Bodies are sent as `application/x-ndjson` for `_bulk` and `_msearch`, and as `application/json` otherwise.
+- Answers are capped at 16 MiB (`ErrResponseTooLarge`). Narrow the request with `size`, `_source` filtering or scroll.
+
+## Schema for editor completion
+
+`Schema(ctx)` returns the open indices, their aliases and their mapping fields flattened to dotted paths (`user.address.city`, `title.keyword`).
+
+```mermaid
+flowchart LR
+    A["GET _mapping<br/>filter_path=*.mappings"] --> M["Flatten per index"]
+    B["GET _alias<br/>filter_path=*.aliases"] --> J["Merge aliases"]
+    M --> J
+    J --> S["Schema<br/>regular indices first, hidden last"]
+```
+
+- Typeless mappings (Elasticsearch 7+ and OpenSearch) and mappings wrapped in a type name (Elasticsearch 5 and 6, and 7 with `include_type_name`) are both understood. With several types, their fields are merged.
+- Object and nested sub-fields and multi-fields are included. Mapping settings such as `dynamic` and `_meta` are ignored.
+- Limits keep huge clusters usable: 2000 indices, 2000 fields per index and 50000 fields in total. Hidden indices (names starting with a dot) sort last, so limits cut them first, and `truncated` tells the caller that something was left out.
+
 ## Version differences handled
 
 | Concern | Elasticsearch | OpenSearch | Where |

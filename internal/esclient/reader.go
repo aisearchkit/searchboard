@@ -14,6 +14,17 @@ type ClusterReader interface {
 	Nodes(ctx context.Context) ([]domain.Node, error)
 	Shards(ctx context.Context) ([]domain.Shard, error)
 	AllocationExplain(ctx context.Context, req domain.AllocationExplainRequest) (domain.AllocationExplain, error)
+	Schema(ctx context.Context) (domain.Schema, error)
 }
 
-var _ ClusterReader = (*Client)(nil)
+// Cluster is everything the server can do with a registered cluster: the typed
+// read-only views plus raw requests for the DevTools console.
+type Cluster interface {
+	ClusterReader
+	Requester
+}
+
+var (
+	_ ClusterReader = (*Client)(nil)
+	_ Cluster       = (*Client)(nil)
+)
