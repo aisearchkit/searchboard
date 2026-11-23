@@ -148,6 +148,7 @@ func (s stubReader) Version(context.Context) (esclient.Version, error)    { retu
 func (s stubReader) Health(context.Context) (domain.ClusterHealth, error) { return s.health, s.err }
 func (s stubReader) Nodes(context.Context) ([]domain.Node, error)         { return s.nodes, nil }
 func (s stubReader) Shards(context.Context) ([]domain.Shard, error)       { return s.shards, nil }
+func (s stubReader) Schema(context.Context) (domain.Schema, error)        { return domain.Schema{}, nil }
 func (s stubReader) AllocationExplain(context.Context, domain.AllocationExplainRequest) (domain.AllocationExplain, error) {
 	return domain.AllocationExplain{}, nil
 }

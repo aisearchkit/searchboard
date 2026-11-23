@@ -100,6 +100,8 @@ func (f *fakeReader) Shards(context.Context) ([]domain.Shard, error) {
 	}, nil
 }
 
+func (f *fakeReader) Schema(context.Context) (domain.Schema, error) { return domain.Schema{}, nil }
+
 func (f *fakeReader) AllocationExplain(context.Context, domain.AllocationExplainRequest) (domain.AllocationExplain, error) {
 	return f.explain, f.explainErr
 }
