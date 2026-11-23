@@ -9,8 +9,8 @@ import (
 
 // Connector hands out cluster clients. Implementations may cache them.
 type Connector interface {
-	// Connect returns a reader for the cluster described by c.
-	Connect(c domain.Cluster) (esclient.ClusterReader, error)
+	// Connect returns a client for the cluster described by c.
+	Connect(c domain.Cluster) (esclient.Cluster, error)
 	// Forget drops anything cached for the cluster ID, for example after deletion.
 	Forget(id string)
 }
@@ -34,7 +34,7 @@ func NewClientCache() *ClientCache {
 }
 
 // Connect implements Connector.
-func (c *ClientCache) Connect(cluster domain.Cluster) (esclient.ClusterReader, error) {
+func (c *ClientCache) Connect(cluster domain.Cluster) (esclient.Cluster, error) {
 	config := esclient.Config{
 		BaseURL:            cluster.URL,
 		Username:           cluster.Username,

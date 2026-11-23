@@ -43,6 +43,10 @@ sequenceDiagram
 | `DELETE` | `/clusters/{id}` | Remove a cluster from Searchboard (the cluster itself is untouched) |
 | `GET` | `/clusters/{id}/matrix` | Cluster health, nodes and the shard matrix |
 | `GET` | `/clusters/{id}/allocation-explain` | Why a shard copy is unassigned |
+| `POST` | `/clusters/{id}/proxy` | Run a console request against the cluster, with confirmation for risky ones (see [devtools.md](devtools.md)) |
+| `GET` | `/clusters/{id}/schema` | Indices, aliases and mapping fields for editor completion |
+| `GET` | `/clusters/{id}/devtools/history` | Console history, newest first. Query: `q` (text search), `limit` (default 100, at most 500) |
+| `DELETE` | `/clusters/{id}/devtools/history` | Clear the console history of the cluster |
 
 ### `POST /clusters`
 
@@ -109,6 +113,7 @@ Query parameters: `index` (required), `shard` (non-negative integer, required), 
 | Status | When |
 | :--- | :--- |
 | `404` | Unknown cluster ID, or an unknown path under `/api/` |
+| `428` | A console request is risky and was sent without `confirm: true` |
 | `405` | Method not allowed for the path, with an `Allow` header |
 | `413` | Request body larger than 1 MiB |
 | `500` | Unexpected server error. Details are logged with the request ID, never returned |
