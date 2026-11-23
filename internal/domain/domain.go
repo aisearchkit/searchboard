@@ -85,3 +85,16 @@ type MigrationTask struct {
 	Status    MigrationStatus
 	CreatedAt time.Time
 }
+
+// HistoryEntry is one request executed from the DevTools console.
+type HistoryEntry struct {
+	ID         int64
+	ClusterID  string
+	Method     string
+	Path       string
+	Request    string // the console text: "METHOD /path" and the body, if any
+	Status     int    // HTTP status the cluster answered with
+	Risk       string // "safe", "write" or "dangerous"
+	DurationMS int64
+	CreatedAt  time.Time
+}
