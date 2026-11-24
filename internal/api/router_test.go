@@ -177,6 +177,7 @@ func startReal(t *testing.T, env *testEnv) string {
 	s := New(Deps{
 		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Clusters:  env.repo,
+		History:   env.history,
 		Connector: env.connector,
 	}, framework.WithHostPorts("127.0.0.1:0"))
 	ln, err := s.Listen()

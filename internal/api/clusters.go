@@ -141,5 +141,6 @@ func (s *server) deleteCluster(ctx context.Context, c *framework.Context) {
 		return
 	}
 	s.connector.Forget(id)
+	s.schemas.forget(id)
 	c.NoContent(http.StatusNoContent)
 }

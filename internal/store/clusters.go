@@ -91,9 +91,16 @@ func (s *Store) CreateCluster(ctx context.Context, c domain.Cluster) (domain.Clu
 	return c, nil
 }
 
-// DeleteCluster removes a cluster, or returns domain.ErrNotFound.
+// DeleteCluster removes a cluster and its DevTools history, or returns
+// domain.ErrNotFound.
 func (s *Store) DeleteCluster(ctx context.Context, id string) error {
-	result, err := s.DB.ExecContext(ctx, "DELETE FROM clusters WHERE id = ?", id)
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("store: delete cluster: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, "DELETE FROM clusters WHERE id = ?", id)
 	if err != nil {
 		return fmt.Errorf("store: delete cluster: %w", err)
 	}
@@ -103,6 +110,12 @@ func (s *Store) DeleteCluster(ctx context.Context, id string) error {
 	}
 	if affected == 0 {
 		return domain.ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM devtools_history WHERE cluster_id = ?", id); err != nil {
+		return fmt.Errorf("store: delete cluster history: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: delete cluster: %w", err)
 	}
 	return nil
 }

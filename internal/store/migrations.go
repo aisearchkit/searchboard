@@ -36,4 +36,13 @@ CREATE TABLE inspection_reports (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 `,
+	// 2: DevTools history records what was run and how it ended
+	`
+ALTER TABLE devtools_history ADD COLUMN method      TEXT    NOT NULL DEFAULT '';
+ALTER TABLE devtools_history ADD COLUMN path        TEXT    NOT NULL DEFAULT '';
+ALTER TABLE devtools_history ADD COLUMN status      INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE devtools_history ADD COLUMN risk        TEXT    NOT NULL DEFAULT 'safe';
+ALTER TABLE devtools_history ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX devtools_history_cluster ON devtools_history (cluster_id, id DESC);
+`,
 }

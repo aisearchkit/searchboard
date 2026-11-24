@@ -48,6 +48,7 @@ func run(log *slog.Logger, cfgPath string) error {
 	app := api.New(api.Deps{
 		Log:       log,
 		Clusters:  db,
+		History:   db,
 		Connector: api.NewClientCache(),
 		Metrics:   metrics,
 	}, framework.WithHostPorts(cfg.Server.Listen))
