@@ -94,3 +94,47 @@ export interface AllocationExplain {
   explanation?: string
   node_decisions?: AllocationNodeDecision[]
 }
+
+export type RiskLevel = "safe" | "write" | "dangerous"
+
+export interface ProxyResult {
+  status: number
+  content_type: string
+  body: string
+  duration_ms: number
+  risk: RiskLevel
+}
+
+/** The 428 answer that asks the user to confirm a risky console request. */
+export interface ConfirmationRequired {
+  error: string
+  risk: RiskLevel
+  reason: string
+}
+
+export interface HistoryEntry {
+  id: number
+  method: string
+  path: string
+  request: string
+  status: number
+  risk: RiskLevel
+  duration_ms: number
+  created_at: string
+}
+
+export interface SchemaField {
+  path: string
+  type: string
+}
+
+export interface SchemaIndex {
+  name: string
+  aliases: string[]
+  fields: SchemaField[]
+}
+
+export interface Schema {
+  indices: SchemaIndex[]
+  truncated: boolean
+}
